@@ -51,7 +51,7 @@ jobs:
 
       - name: Run QA Tests
         run: |
-          pytest -v testopython.py \
+          pytest -v tests/testopython.py \
             --html=reports/report.html \
             --self-contained-html \
             --junit-xml=reports/results.xml
