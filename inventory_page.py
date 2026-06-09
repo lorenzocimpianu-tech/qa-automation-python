@@ -10,8 +10,12 @@ class InventoryPage:
         self.cart_icon = page.locator(".shopping_cart_link")
         self.cart_badge = page.locator(".shopping_cart_badge")
 
-    def is_loaded(self) -> bool:
-        return self.EXPECTED_URL_FRAGMENT in self.page.url
+def is_loaded(self, timeout: int = 10_000) -> bool:
+    try:
+        self.page.wait_for_url(f"**/{self.EXPECTED_URL_FRAGMENT}", timeout=timeout)
+        return True
+    except Exception:
+        return False
 
     def get_title(self) -> str:
         return self.title.text_content()
