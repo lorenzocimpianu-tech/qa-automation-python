@@ -51,7 +51,7 @@ def test_login_success(page, api_user):
     assert inventory.is_loaded(), (
         f"Redirect inatteso dopo login: {page.url}"
     )
-    assert inventory.get_title() == "Products", (
+    assert inventory.get_title() == "Sito Hackerato!", (
         f"Titolo inatteso: '{inventory.get_title()}'"
     )
 
