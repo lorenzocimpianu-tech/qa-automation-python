@@ -1,68 +1,96 @@
 import pytest
 import requests
-from playwright.sync_api import sync_playwright
+
+from pages.login_page import LoginPage
+from pages.inventory_page import InventoryPage
 
 # --- Costanti separate dalla logica di test ---
-SAUCEDEMO_URL = "https://www.saucedemo.com/"
 SAUCEDEMO_USER = "standard_user"
 SAUCEDEMO_PASS = "secret_sauce"
 
-@pytest.fixture
-def create_test_user():
+# --- Fixture ---
+
+@pytest.fixture(scope="session")
+def api_user():
     """
     Simula la creazione di un utente via API.
-    Nota: jsonplaceholder è un mock — non valida i campi,
-    ma ci permette di testare il pattern fixture + assert sul codice HTTP.
+    scope="session" → viene eseguita una volta sola per tutti i test.
     """
     url = "https://jsonplaceholder.typicode.com/posts"
     payload = {
-        "title": "qa_tester_python",       # jsonplaceholder usa 'title', non 'username'
+        "title": "qa_tester_python",
         "body": "tester@example.com",
-        "userId": 1
+        "userId": 1,
     }
-
     response = requests.post(url, json=payload)
     assert response.status_code == 201, (
         f"Creazione utente fallita: {response.status_code} - {response.text}"
     )
-
     data = response.json()
-    # Restituiamo un dizionario con chiavi coerenti per il test
     return {
         "id": data["id"],
-        "username": SAUCEDEMO_USER,  # In un sistema reale, verrebbe dall'API
+        "username": SAUCEDEMO_USER,
         "password": SAUCEDEMO_PASS,
     }
 
 
-def test_user_login_flow(create_test_user):
+# --- Test: happy path ---
+
+def test_login_success(page, api_user):
     """
-    Testa il flusso di login su SauceDemo usando le credenziali
-    'ricevute' dalla fase API (qui simulate con utenti predefiniti).
+    Verifica il login corretto e la visualizzazione del catalogo prodotti.
+    'page' è la fixture nativa di pytest-playwright — il conftest
+    può intercettarla automaticamente per gli screenshot on failure.
     """
-    user_data = create_test_user
-    username = user_data["username"]
-    password = user_data["password"]
+    login = LoginPage(page)
+    login.navigate()
+    login.login(api_user["username"], api_user["password"])
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)  # True per CI, False per debug locale
-        page = browser.new_page()
+    inventory = InventoryPage(page)
 
-        try:
-            page.goto(SAUCEDEMO_URL)
+    assert inventory.is_loaded(), (
+        f"Redirect inatteso dopo login: {page.url}"
+    )
+    assert inventory.get_title() == "Products", (
+        f"Titolo inatteso: '{inventory.get_title()}'"
+    )
 
-            page.fill("input#user-name", username)
-            page.fill("input#password", password)
-            page.click("input#login-button")
 
-            # Verifica URL post-login
-            assert "inventory.html" in page.url, (
-                f"Redirect inatteso dopo login: {page.url}"
-            )
+def test_add_product_to_cart(page, api_user):
+    """Verifica che aggiungere un prodotto aggiorni il contatore del carrello."""
+    login = LoginPage(page)
+    login.navigate()
+    login.login(api_user["username"], api_user["password"])
 
-            # Verifica titolo catalogo
-            titolo = page.locator("span.title").text_content()
-            assert titolo == "Products", f"Titolo inatteso: '{titolo}'"
+    inventory = InventoryPage(page)
+    assert inventory.get_cart_count() == 0
 
-        finally:
-            browser.close()  # Garantito anche in caso di errore
+    inventory.add_product_to_cart("sauce-labs-backpack")
+    assert inventory.get_cart_count() == 1
+
+
+# --- Test: scenari negativi (parametrizzati) ---
+
+INVALID_CREDENTIALS = [
+    ("locked_out_user", SAUCEDEMO_PASS,  "Sorry, this user has been locked out"),
+    ("standard_user",   "wrong_password", "Username and password do not match"),
+    ("",                "",               "Username is required"),
+    ("standard_user",   "",               "Password is required"),
+]
+
+
+@pytest.mark.parametrize("username,password,expected_error", INVALID_CREDENTIALS)
+def test_login_failure(page, username, password, expected_error):
+    """
+    Verifica che il login fallisca con messaggio d'errore corretto
+    per diversi scenari di credenziali non valide.
+    """
+    login = LoginPage(page)
+    login.navigate()
+    login.login(username, password)
+
+    assert login.is_error_visible(), "Messaggio di errore non visualizzato"
+    assert expected_error in login.get_error_message(), (
+        f"Errore atteso: '{expected_error}'\n"
+        f"Errore ottenuto: '{login.get_error_message()}'"
+    )
